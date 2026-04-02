@@ -1103,6 +1103,15 @@
         }
       }
 
+      function readStoredState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? migrate(JSON.parse(raw)) : null;
+        } catch {
+          return null;
+        }
+      }
+
       function persist() {
         state.updatedAt = nowIso();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -1293,7 +1302,7 @@
             selectedFolderId = folder.id;
             focusedFolderId = folder.id;
             selectDefaultBookmarkForFolder(folder.id);
-            render();
+            render(false);
             if (focusedBookmarkIndex >= 0) focusBookmarkIndex(focusedBookmarkIndex);
           });
 
@@ -1472,7 +1481,8 @@
         syncActiveBookmarkCard();
       }
 
-      function render() {
+      function render(persistData) {
+        const shouldPersistData = persistData !== false;
         normalizeOrders();
         if (selectedFolderId && !getFolderById(selectedFolderId)) selectedFolderId = state.folders[0]?.id || null;
         if (focusedBookmarkId && !state.bookmarks.some(b => b.id === focusedBookmarkId)) focusedBookmarkId = null;
@@ -1481,7 +1491,7 @@
         persistCollapsedFolderIds();
         renderFolders();
         renderBookmarks();
-        persist();
+        if (shouldPersistData) persist();
         persistUiState();
       }
 
@@ -1638,7 +1648,7 @@
         selectedFolderId = focusedFolderId;
         selectDefaultBookmarkForFolder(focusedFolderId);
         ensureFolderVisible(focusedFolderId);
-        render();
+        render(false);
         if (focusedBookmarkIndex >= 0) focusBookmarkIndex(focusedBookmarkIndex);
       }
 
@@ -1647,7 +1657,7 @@
         if (collapse) collapsedFolderIds.add(folderId);
         else collapsedFolderIds.delete(folderId);
         persistCollapsedFolderIds();
-        render();
+        render(false);
       }
 
       function populateBookmarkFolderOptions(selectedId) {
@@ -2159,7 +2169,7 @@
             if (focusedBookmarkId && !state.bookmarks.some(b => b.id === focusedBookmarkId)) {
               focusedBookmarkId = null;
             }
-            render();
+            render(false);
             alert("Import complete.");
           } catch {
             alert("Invalid JSON file.");
@@ -2170,6 +2180,28 @@
 
       function getBookmarkCards() {
         return Array.from(el.bookmarkGrid.querySelectorAll(".bookmark-card"));
+      }
+
+      function applyExternalState(nextState) {
+        if (!nextState) return false;
+        const currentUpdated = state && state.updatedAt ? state.updatedAt : "";
+        const nextUpdated = nextState.updatedAt || "";
+        if (nextUpdated && currentUpdated && nextUpdated <= currentUpdated) return false;
+        state = nextState;
+        if (selectedFolderId && !getFolderById(selectedFolderId)) selectedFolderId = state.folders[0]?.id || null;
+        if (!selectedFolderId) selectedFolderId = state.folders[0]?.id || null;
+        if (!focusedFolderId || !getFolderById(focusedFolderId)) focusedFolderId = selectedFolderId;
+        if (focusedBookmarkId && !state.bookmarks.some(b => b.id === focusedBookmarkId)) {
+          focusedBookmarkId = null;
+          focusedBookmarkIndex = -1;
+        }
+        render(false);
+        return true;
+      }
+
+      function syncStateFromStorage() {
+        const stored = readStoredState();
+        return applyExternalState(stored);
       }
 
       function syncActiveBookmarkCard() {
@@ -2292,6 +2324,22 @@
         const file = el.importFile.files && el.importFile.files[0];
         if (file) importJson(file);
         el.importFile.value = "";
+      });
+
+      window.addEventListener("storage", (event) => {
+        if (event.key !== STORAGE_KEY || !event.newValue) return;
+        try {
+          applyExternalState(migrate(JSON.parse(event.newValue)));
+        } catch {}
+      });
+
+      window.addEventListener("focus", () => {
+        syncStateFromStorage();
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) return;
+        syncStateFromStorage();
       });
 
       el.searchInput.addEventListener("input", () => {
@@ -2565,7 +2613,7 @@
       if (!focusedFolderId || !getFolderById(focusedFolderId)) focusedFolderId = selectedFolderId;
       el.versionLabel.textContent = "v" + APP_VERSION;
       loadTheme();
-      render();
+      render(false);
     })();
   </script>
 </body>
