@@ -204,6 +204,7 @@
     input[type="search"],
     input[type="text"],
     input[type="url"],
+    textarea,
     select {
       flex: 1;
       min-width: 220px;
@@ -219,9 +220,17 @@
     input[type="search"]:focus,
     input[type="text"]:focus,
     input[type="url"]:focus,
+    textarea:focus,
     select:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 108px;
+      line-height: 1.45;
+      font-family: inherit;
     }
 
     button {
@@ -248,7 +257,7 @@
       padding: 14px;
       overflow: auto;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 12px;
       align-content: start;
       min-height: 180px;
@@ -260,12 +269,12 @@
       border: 1px solid var(--line);
       border-radius: 12px;
       background: var(--panel);
-      padding: 10px;
+      padding: 12px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      min-height: 90px;
+      gap: 12px;
+      min-height: 170px;
       user-select: none;
       transition: transform 120ms ease, box-shadow 120ms ease;
     }
@@ -273,6 +282,12 @@
     .bookmark-card:hover {
       transform: translateY(-1px);
       box-shadow: 0 7px 20px rgba(16, 33, 55, 0.1);
+    }
+
+    .bookmark-card.active,
+    .bookmark-card:focus-visible {
+      outline: 2px solid rgba(15, 118, 110, 0.45);
+      outline-offset: -2px;
     }
 
     .bookmark-card.drag-over {
@@ -324,7 +339,7 @@
 
     .bookmark-top {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       min-width: 0;
     }
@@ -340,19 +355,50 @@
     }
 
     .bookmark-title {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
       font-weight: 600;
       font-size: 14px;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    .bookmark-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .bookmark-description {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    .bookmark-description.empty {
+      color: var(--muted);
+      font-style: italic;
     }
 
     .bookmark-url {
       color: var(--muted);
       font-size: 12px;
+      line-height: 1.35;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
     }
 
     .empty-state {
@@ -506,12 +552,12 @@
   </style>
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="appRoot">
     <aside class="sidebar">
       <div class="sidebar-header">
         <div style="flex: 1;">
           <div class="brand">TabCraft</div>
-          <div class="hint">Folders</div>
+          <div class="hint">Folders <span id="versionLabel"></span></div>
         </div>
         <button id="addFolderBtn" title="Add folder (f)">+ Folder</button>
       </div>
@@ -553,6 +599,10 @@
         <label for="bookmarkUrl">URL</label>
         <input id="bookmarkUrl" type="url" required placeholder="https://example.com">
       </div>
+      <div class="field">
+        <label for="bookmarkDescription">Description</label>
+        <textarea id="bookmarkDescription" maxlength="600" placeholder="Optional notes or summary shown on the bookmark card"></textarea>
+      </div>
       <div class="dialog-actions">
         <button id="bookmarkCancelBtn" type="button">Cancel</button>
         <button id="bookmarkSaveBtn" type="submit" class="primary">Save</button>
@@ -566,10 +616,13 @@
       const THEME_KEY = "tabcraft:theme";
       const FOLDER_UI_KEY = "tabcraft:folder-ui:v1";
       const UI_STATE_KEY = "tabcraft:ui-state:v1";
+      const APP_VERSION = "1.1.0";
 
       const el = {
+        appRoot: document.getElementById("appRoot"),
         folderList: document.getElementById("folderList"),
         bookmarkGrid: document.getElementById("bookmarkGrid"),
+        versionLabel: document.getElementById("versionLabel"),
         searchInput: document.getElementById("searchInput"),
         addFolderBtn: document.getElementById("addFolderBtn"),
         addBookmarkBtn: document.getElementById("addBookmarkBtn"),
@@ -584,6 +637,7 @@
         bookmarkFolder: document.getElementById("bookmarkFolder"),
         bookmarkTitle: document.getElementById("bookmarkTitle"),
         bookmarkUrl: document.getElementById("bookmarkUrl"),
+        bookmarkDescription: document.getElementById("bookmarkDescription"),
         bookmarkCancelBtn: document.getElementById("bookmarkCancelBtn"),
         bookmarkSaveBtn: document.getElementById("bookmarkSaveBtn")
       };
@@ -706,6 +760,18 @@
         }));
       }
 
+      function clipTitle(input) {
+        const raw = String(input || "").replace(/\s+/g, " ").trim();
+        if (!raw) return "";
+        return raw.length > 120 ? raw.slice(0, 120).trim() : raw;
+      }
+
+      function clipDescription(input) {
+        const raw = String(input || "").replace(/\s+/g, " ").trim();
+        if (!raw) return "";
+        return raw.length > 600 ? raw.slice(0, 600).trim() : raw;
+      }
+
       function validateUrl(input) {
         let raw = (input || "").trim();
         if (!raw) return null;
@@ -726,6 +792,218 @@
         if (direct) return direct;
         const match = trimmed.match(/https?:\/\/[^\s"'<>]+/i);
         return validateUrl(match ? match[0] : "");
+      }
+
+      function toExternalBookmark(url, title) {
+        const normalizedUrl = validateUrl(url || "");
+        if (!normalizedUrl) return null;
+        return {
+          url: normalizedUrl,
+          title: clipTitle(title || ""),
+          description: ""
+        };
+      }
+
+      function parseExternalFolderHtml(html) {
+        if (!html) return null;
+        let doc;
+        try {
+          doc = new DOMParser().parseFromString(html, "text/html");
+        } catch {
+          return null;
+        }
+
+        function parseDl(dlElement) {
+          const result = { bookmarks: [], folders: [] };
+          const children = Array.from(dlElement ? dlElement.children : []);
+          for (let i = 0; i < children.length; i += 1) {
+            const node = children[i];
+            if (!node || node.tagName.toUpperCase() !== "DT") continue;
+
+            const dtChildren = Array.from(node.children || []);
+            const folderHeading = dtChildren.find((c) => /^H[1-6]$/i.test(c.tagName || "")) || null;
+            const anchor = dtChildren.find((c) => /^A$/i.test(c.tagName || "") && c.getAttribute("href")) || null;
+
+            if (folderHeading) {
+              const folderName = clipTitle(folderHeading.textContent || "").trim() || "Imported Folder";
+              let nested = null;
+              let nextIndex = i + 1;
+              while (nextIndex < children.length) {
+                const nextTag = children[nextIndex].tagName ? children[nextIndex].tagName.toUpperCase() : "";
+                if (nextTag === "P") {
+                  nextIndex += 1;
+                  continue;
+                }
+                break;
+              }
+              const next = children[nextIndex];
+              if (next && next.tagName && next.tagName.toUpperCase() === "DL") {
+                nested = next;
+                i = nextIndex;
+              } else {
+                nested = node.querySelector("dl");
+              }
+              const parsedChildren = parseDl(nested);
+              result.folders.push({
+                name: folderName,
+                bookmarks: parsedChildren.bookmarks,
+                folders: parsedChildren.folders
+              });
+              continue;
+            }
+
+            if (anchor) {
+              const bookmark = toExternalBookmark(anchor.getAttribute("href"), anchor.textContent || "");
+              if (bookmark) result.bookmarks.push(bookmark);
+            }
+          }
+          return result;
+        }
+
+        const dls = Array.from(doc.querySelectorAll("dl"))
+          .filter(dl => !dl.parentElement || !dl.parentElement.closest("dl"));
+        if (!dls.length) {
+          const anchors = Array.from(doc.querySelectorAll("a[href]"));
+          const bookmarks = anchors
+            .map((a) => toExternalBookmark(a.getAttribute("href"), a.textContent || ""))
+            .filter(Boolean);
+          if (!bookmarks.length) return null;
+          if (bookmarks.length === 1) return { kind: "bookmark", bookmark: bookmarks[0] };
+          return { kind: "bookmarkList", bookmarks };
+        }
+
+        const root = { bookmarks: [], folders: [] };
+        for (const dl of dls) {
+          const parsed = parseDl(dl);
+          for (const b of parsed.bookmarks) root.bookmarks.push(b);
+          for (const f of parsed.folders) root.folders.push(f);
+        }
+
+        if (!root.bookmarks.length && !root.folders.length) return null;
+        if (!root.folders.length && root.bookmarks.length === 1) {
+          return { kind: "bookmark", bookmark: root.bookmarks[0] };
+        }
+        return { kind: "folderTree", tree: root };
+      }
+
+      function extractExternalDropPayloadFromRaw(raw) {
+        const moz = raw && raw.moz ? raw.moz : "";
+        if (moz) {
+          const lines = moz.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+          const items = [];
+          for (let i = 0; i < lines.length; i += 2) {
+            const item = toExternalBookmark(lines[i], lines[i + 1] || "");
+            if (item) items.push(item);
+          }
+          if (items.length === 1) return { kind: "bookmark", bookmark: items[0] };
+          if (items.length > 1) return { kind: "bookmarkList", bookmarks: items };
+        }
+
+        const html = raw && raw.html ? raw.html : "";
+        const parsedHtml = parseExternalFolderHtml(html);
+        if (parsedHtml) return parsedHtml;
+
+        const uriList = raw && raw.uriList ? raw.uriList : "";
+        if (uriList) {
+          const urls = uriList
+            .split(/\r?\n/)
+            .map(x => x.trim())
+            .filter(x => x && !x.startsWith("#"));
+          const items = urls
+            .map((url) => toExternalBookmark(url, ""))
+            .filter(Boolean);
+          if (items.length === 1) return { kind: "bookmark", bookmark: items[0] };
+          if (items.length > 1) return { kind: "bookmarkList", bookmarks: items };
+        }
+
+        const plain = raw && raw.plain ? raw.plain : "";
+        if (plain) {
+          const urls = plain.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+          const uniqueItems = [];
+          const seen = new Set();
+          for (const rawUrl of urls) {
+            const item = toExternalBookmark(rawUrl, "");
+            if (!item) continue;
+            const key = item.url.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            uniqueItems.push(item);
+          }
+          if (uniqueItems.length === 1) return { kind: "bookmark", bookmark: uniqueItems[0] };
+          if (uniqueItems.length > 1) return { kind: "bookmarkList", bookmarks: uniqueItems };
+
+          const single = toExternalBookmark(plain, plain);
+          if (single) {
+            single.title = single.title === single.url ? "" : single.title;
+            return { kind: "bookmark", bookmark: single };
+          }
+        }
+        return null;
+      }
+
+      function extractExternalDropPayload(event) {
+        const dt = event.dataTransfer;
+        if (!dt) return null;
+        return extractExternalDropPayloadFromRaw({
+          moz: dt.getData("text/x-moz-url"),
+          html: dt.getData("text/html"),
+          uriList: dt.getData("text/uri-list"),
+          plain: dt.getData("text/plain")
+        });
+      }
+
+      function getDragItemString(item) {
+        return new Promise((resolve) => {
+          try {
+            item.getAsString((value) => resolve(value || ""));
+          } catch {
+            resolve("");
+          }
+        });
+      }
+
+      async function extractExternalDropPayloadAsync(event) {
+        const syncPayload = extractExternalDropPayload(event);
+        if (syncPayload) return syncPayload;
+
+        const dt = event.dataTransfer;
+        if (!dt || !dt.items || !dt.items.length) return null;
+
+        const byType = new Map();
+        const all = [];
+        const items = Array.from(dt.items);
+        for (const item of items) {
+          if (!item || item.kind !== "string") continue;
+          const text = await getDragItemString(item);
+          if (!text) continue;
+          const type = String(item.type || "text/plain").toLowerCase();
+          all.push(text);
+          byType.set(type, (byType.get(type) || "") + "\n" + text);
+        }
+
+        const asyncPayload = extractExternalDropPayloadFromRaw({
+          moz: byType.get("text/x-moz-url") || "",
+          html: byType.get("text/html") || "",
+          uriList: byType.get("text/uri-list") || "",
+          plain: (byType.get("text/plain") || "") + "\n" + all.join("\n")
+        });
+        return asyncPayload;
+      }
+
+      function isExternalBookmarkDrag(event) {
+        if (dragFolderId || dragBookmarkPayload) return false;
+        const dt = event.dataTransfer;
+        if (!dt) return false;
+        const types = Array.from(dt.types || []);
+        return types.includes("text/uri-list") ||
+          types.includes("text/plain") ||
+          types.includes("text/html") ||
+          types.includes("text/x-moz-url");
+      }
+
+      function isPotentialExternalDrag(event) {
+        if (dragFolderId || dragBookmarkPayload) return false;
+        return !!event.dataTransfer;
       }
 
       function extractUrlFromClipboard(event) {
@@ -755,7 +1033,7 @@
         const folderId = uid("folder");
         const now = nowIso();
         return {
-          version: 1,
+          version: 2,
           updatedAt: now,
           folders: [
             { id: folderId, name: "General", parentId: null, order: 0, createdAt: now, updatedAt: now }
@@ -791,11 +1069,12 @@
             folderId: String(b.folderId),
             title: String(b.title || b.url),
             url: String(b.url),
+            description: clipDescription(b.description || ""),
             order: Number.isFinite(b.order) ? b.order : i,
             createdAt: b.createdAt || nowIso(),
             updatedAt: b.updatedAt || nowIso()
           }));
-        return { version: 1, updatedAt: raw.updatedAt || nowIso(), folders, bookmarks };
+        return { version: 2, updatedAt: raw.updatedAt || nowIso(), folders, bookmarks };
       }
 
       function loadState() {
@@ -1015,6 +1294,8 @@
               }
             } else if (dragBookmarkPayload) {
               setDropIndicator(li, "inside");
+            } else if (isPotentialExternalDrag(e)) {
+              setDropIndicator(li, "inside");
             }
           });
 
@@ -1022,9 +1303,17 @@
             li.classList.remove("drop-before", "drop-after", "drop-inside", "drag-over");
           });
 
-          li.addEventListener("drop", (event) => {
+          li.addEventListener("drop", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             const mode = getVerticalDropMode(event, li, 0.28);
             li.classList.remove("drop-before", "drop-after", "drop-inside", "drag-over");
+            if (!dragFolderId && !dragBookmarkPayload) {
+              const payload = await extractExternalDropPayloadAsync(event);
+              if (payload) importExternalPayload(payload, "folders", folder.id);
+              clearDropIndicators();
+              return;
+            }
             if (!dragFolderId || dragFolderId === folder.id) return;
             moveFolder(dragFolderId, folder.id, mode);
             dragFolderId = null;
@@ -1046,7 +1335,9 @@
 
         const list = getBookmarksByFolder(folder.id).filter(b => {
           if (!searchTerm) return true;
-          return b.title.toLowerCase().includes(searchTerm) || b.url.toLowerCase().includes(searchTerm);
+          return b.title.toLowerCase().includes(searchTerm)
+            || b.url.toLowerCase().includes(searchTerm)
+            || (b.description || "").toLowerCase().includes(searchTerm);
         });
 
         focusedBookmarkIndex = focusedBookmarkId ? list.findIndex(b => b.id === focusedBookmarkId) : -1;
@@ -1060,6 +1351,10 @@
         }
 
         list.forEach((bookmark, index) => {
+          const description = bookmark.description || "";
+          const safeDescription = escapeHtml(description);
+          const descriptionClass = description ? "bookmark-description" : "bookmark-description empty";
+          const descriptionText = description || "No description yet.";
           const card = document.createElement("article");
           card.className = "bookmark-card" + (index === focusedBookmarkIndex ? " active" : "");
           card.dataset.bookmarkId = bookmark.id;
@@ -1070,6 +1365,9 @@
             '<div class="bookmark-top">' +
               '<img class="favicon" alt="" src="' + favicon(bookmark.url) + '" onerror="this.style.visibility=\'hidden\'">' +
               '<div class="bookmark-title" title="' + escapeHtml(bookmark.title) + '">' + escapeHtml(bookmark.title) + '</div>' +
+            '</div>' +
+            '<div class="bookmark-body">' +
+              '<div class="' + descriptionClass + '" title="' + safeDescription + '">' + escapeHtml(descriptionText) + '</div>' +
             '</div>' +
             '<div class="bookmark-url" title="' + escapeHtml(bookmark.url) + '">' + escapeHtml(bookmark.url) + '</div>';
 
@@ -1097,7 +1395,7 @@
 
           card.addEventListener("dragover", (e) => {
             e.preventDefault();
-            if (!dragBookmarkPayload) return;
+            if (!dragBookmarkPayload && !isPotentialExternalDrag(e)) return;
             const rect = card.getBoundingClientRect();
             const mode = e.clientY > rect.top + rect.height / 2 ? "after" : "before";
             setDropIndicator(card, mode);
@@ -1107,9 +1405,16 @@
             card.classList.remove("drop-before", "drop-after", "drag-over");
           });
 
-          card.addEventListener("drop", (event) => {
+          card.addEventListener("drop", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             card.classList.remove("drop-before", "drop-after", "drag-over");
-            if (!dragBookmarkPayload) return;
+            if (!dragBookmarkPayload) {
+              const payload = await extractExternalDropPayloadAsync(event);
+              if (payload && selectedFolderId) importExternalPayload(payload, "links", selectedFolderId);
+              clearDropIndicators();
+              return;
+            }
             const rect = card.getBoundingClientRect();
             const dropAfter = event.clientY > rect.top + rect.height / 2;
             let beforeBookmarkId = bookmark.id;
@@ -1331,6 +1636,7 @@
         let folderId = selectedFolderId;
         let title = "";
         let url = "";
+        let description = "";
 
         if (mode === "edit") {
           const b = state.bookmarks.find(x => x.id === bookmarkId);
@@ -1338,6 +1644,7 @@
           folderId = b.folderId;
           title = b.title;
           url = b.url;
+          description = b.description || "";
           el.bookmarkDialogTitle.textContent = "Edit Bookmark";
           el.bookmarkSaveBtn.textContent = "Save";
         } else {
@@ -1347,12 +1654,14 @@
             folderId = seed.folderId || folderId;
             title = seed.title || "";
             url = seed.url || "";
+            description = seed.description || "";
           }
         }
 
         populateBookmarkFolderOptions(folderId);
         el.bookmarkTitle.value = title;
         el.bookmarkUrl.value = url;
+        el.bookmarkDescription.value = description;
         el.bookmarkDialog.showModal();
         setTimeout(() => {
           if (mode === "edit") {
@@ -1382,6 +1691,7 @@
           return;
         }
         const title = (el.bookmarkTitle.value || "").trim() || hostname(url) || url;
+        const description = clipDescription(el.bookmarkDescription.value || "");
 
         if (bookmarkDialogMode === "edit" && editingBookmarkId) {
           const existing = state.bookmarks.find(x => x.id === editingBookmarkId);
@@ -1390,6 +1700,7 @@
           existing.folderId = folderId;
           existing.title = title;
           existing.url = url;
+          existing.description = description;
           existing.updatedAt = nowIso();
           if (previousFolderId !== folderId) {
             existing.order = getBookmarksByFolder(folderId).length;
@@ -1402,6 +1713,7 @@
             folderId,
             title,
             url,
+            description,
             order: getBookmarksByFolder(folderId).length,
             createdAt: now,
             updatedAt: now
@@ -1422,18 +1734,21 @@
         openBookmarkDialog("add");
       }
 
-      function quickAddBookmark(url, folderId) {
+      function quickAddBookmark(url, folderId, preferredTitle) {
         const targetFolderId = folderId || selectedFolderId;
         const folder = getFolderById(targetFolderId);
         if (!folder) return;
         const normalizedUrl = validateUrl(url);
         if (!normalizedUrl) return;
+        const cleanTitle = clipTitle(preferredTitle || "");
+        const resolvedTitle = cleanTitle || hostname(normalizedUrl) || normalizedUrl;
         const now = nowIso();
         const created = {
           id: uid("bm"),
           folderId: targetFolderId,
-          title: hostname(normalizedUrl) || normalizedUrl,
+          title: resolvedTitle,
           url: normalizedUrl,
+          description: "",
           order: getBookmarksByFolder(targetFolderId).length,
           createdAt: now,
           updatedAt: now
@@ -1444,6 +1759,136 @@
         focusedBookmarkIndex = -1;
         focusedBookmarkId = created.id;
         render();
+      }
+
+      function addBookmarkRecord(url, folderId, preferredTitle, preferredDescription) {
+        const normalizedUrl = validateUrl(url);
+        if (!normalizedUrl) return null;
+        const cleanTitle = clipTitle(preferredTitle || "");
+        const resolvedTitle = cleanTitle || hostname(normalizedUrl) || normalizedUrl;
+        const description = clipDescription(preferredDescription || "");
+        const now = nowIso();
+        const created = {
+          id: uid("bm"),
+          folderId,
+          title: resolvedTitle,
+          url: normalizedUrl,
+          description,
+          order: getBookmarksByFolder(folderId).length,
+          createdAt: now,
+          updatedAt: now
+        };
+        state.bookmarks.push(created);
+        return created;
+      }
+
+      function importBookmarksIntoFolder(bookmarks, folderId) {
+        const folder = getFolderById(folderId);
+        if (!folder) return 0;
+        let count = 0;
+        let lastId = null;
+        for (const item of bookmarks || []) {
+          if (!item || !item.url) continue;
+          const created = addBookmarkRecord(item.url, folderId, item.title || "", item.description || "");
+          if (created) {
+            count += 1;
+            lastId = created.id;
+          }
+        }
+        if (count > 0) {
+          selectedFolderId = folderId;
+          focusedFolderId = folderId;
+          focusedBookmarkIndex = -1;
+          focusedBookmarkId = lastId;
+          render();
+        }
+        return count;
+      }
+
+      function flattenExternalTreeBookmarks(tree, out) {
+        if (!tree) return;
+        for (const b of tree.bookmarks || []) out.push(b);
+        for (const child of tree.folders || []) flattenExternalTreeBookmarks(child, out);
+      }
+
+      function createImportedFolder(name, parentId) {
+        const folderName = clipTitle(name || "").trim() || "Imported Folder";
+        const now = nowIso();
+        const created = {
+          id: uid("folder"),
+          name: folderName,
+          parentId: parentId || null,
+          order: getFoldersByParentId(parentId || null).length,
+          createdAt: now,
+          updatedAt: now
+        };
+        state.folders.push(created);
+        return created;
+      }
+
+      function importFolderTreeNode(node, parentId) {
+        const folder = createImportedFolder(node.name, parentId);
+        collapsedFolderIds.delete(folder.id);
+        for (const bookmark of node.bookmarks || []) {
+          addBookmarkRecord(bookmark.url, folder.id, bookmark.title || "", bookmark.description || "");
+        }
+        for (const child of node.folders || []) {
+          importFolderTreeNode(child, folder.id);
+        }
+        return folder.id;
+      }
+
+      function importExternalPayload(payload, targetArea, targetFolderId) {
+        if (!payload) return false;
+        const fallbackFolderId = targetFolderId || selectedFolderId || state.folders[0]?.id || null;
+        if (payload.kind === "bookmark") {
+          if (!fallbackFolderId) return false;
+          return importBookmarksIntoFolder([payload.bookmark], fallbackFolderId) > 0;
+        }
+        if (payload.kind === "bookmarkList") {
+          if (!fallbackFolderId) return false;
+          return importBookmarksIntoFolder(payload.bookmarks, fallbackFolderId) > 0;
+        }
+        if (payload.kind === "folderTree") {
+          if (targetArea === "links") {
+            if (!fallbackFolderId) return false;
+            const flattened = [];
+            flattenExternalTreeBookmarks(payload.tree, flattened);
+            return importBookmarksIntoFolder(flattened, fallbackFolderId) > 0;
+          }
+
+          let createdAny = false;
+          let lastCreatedFolderId = null;
+          const baseParentId = targetFolderId || null;
+
+          for (const folderNode of payload.tree.folders || []) {
+            lastCreatedFolderId = importFolderTreeNode(folderNode, baseParentId);
+            createdAny = true;
+          }
+          if (baseParentId && (payload.tree.bookmarks || []).length) {
+            for (const b of payload.tree.bookmarks) {
+              const created = addBookmarkRecord(b.url, baseParentId, b.title || "", b.description || "");
+              if (created) createdAny = true;
+            }
+          } else if (!baseParentId && (payload.tree.bookmarks || []).length) {
+            const inbox = createImportedFolder("Imported Bookmarks", null);
+            lastCreatedFolderId = inbox.id;
+            for (const b of payload.tree.bookmarks) {
+              addBookmarkRecord(b.url, inbox.id, b.title || "", b.description || "");
+            }
+            createdAny = true;
+          }
+
+          if (createdAny) {
+            if (lastCreatedFolderId) {
+              selectedFolderId = lastCreatedFolderId;
+              focusedFolderId = lastCreatedFolderId;
+            }
+            render();
+          }
+          return createdAny;
+        }
+        return false;
       }
 
       function editBookmark(bookmarkId) {
@@ -1495,9 +1940,43 @@
 
       function openBookmarkMenu(x, y, bookmarkId) {
         openMenu(x, y, [
+          { label: "Copy URL", handler: () => copyBookmarkUrl(bookmarkId) },
           { label: "Edit Bookmark", handler: () => editBookmark(bookmarkId) },
           { label: "Delete Bookmark", handler: () => deleteBookmark(bookmarkId), danger: true }
         ]);
+      }
+
+      async function copyTextToClipboard(text) {
+        if (!text) return false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch {}
+
+        try {
+          const area = document.createElement("textarea");
+          area.value = text;
+          area.setAttribute("readonly", "");
+          area.style.position = "fixed";
+          area.style.left = "-9999px";
+          document.body.appendChild(area);
+          area.select();
+          const ok = document.execCommand("copy");
+          area.remove();
+          return !!ok;
+        } catch {
+          return false;
+        }
+      }
+
+      function copyBookmarkUrl(bookmarkId) {
+        const b = state.bookmarks.find(x => x.id === bookmarkId);
+        if (!b) return;
+        copyTextToClipboard(b.url).then((ok) => {
+          if (!ok) alert("Could not copy URL. Your browser blocked clipboard access.");
+        });
       }
 
       function openMenu(x, y, items) {
@@ -1614,6 +2093,7 @@
               folderId: mappedFolderId,
               title: importedBookmark.title,
               url: importedBookmark.url,
+              description: clipDescription(importedBookmark.description || ""),
               order: getBookmarksByFolder(mappedFolderId).length,
               createdAt: importedBookmark.createdAt || nowIso(),
               updatedAt: importedBookmark.updatedAt || nowIso()
@@ -1624,6 +2104,7 @@
             const existingUpdated = existing.updatedAt || "";
             if (importedUpdated > existingUpdated) {
               existing.title = importedBookmark.title || existing.title;
+              existing.description = clipDescription(importedBookmark.description || existing.description || "");
               existing.updatedAt = importedUpdated;
             }
           }
@@ -1751,9 +2232,7 @@
         if (!pastedUrl) return;
         event.preventDefault();
         el.bookmarkUrl.value = pastedUrl;
-        if (!el.bookmarkTitle.value.trim()) {
-          el.bookmarkTitle.value = hostname(pastedUrl) || pastedUrl;
-        }
+        if (!el.bookmarkTitle.value.trim()) el.bookmarkTitle.value = hostname(pastedUrl) || pastedUrl;
       });
 
       el.bookmarkUrl.addEventListener("blur", () => {
@@ -1908,7 +2387,7 @@
       });
 
       el.folderList.addEventListener("dragover", (event) => {
-        if (!dragBookmarkPayload && !dragFolderId) return;
+        if (!dragBookmarkPayload && !dragFolderId && !isPotentialExternalDrag(event)) return;
         event.preventDefault();
         const target = event.target.closest(".folder-item");
         if (target) return;
@@ -1947,11 +2426,19 @@
         }
       });
 
-      el.folderList.addEventListener("drop", (event) => {
+      el.folderList.addEventListener("drop", async (event) => {
+        event.preventDefault();
         const dropAtStart = el.folderList.classList.contains("drop-start");
         const endParentId = folderListEndDropParentId;
         clearDropIndicators();
         const target = event.target.closest(".folder-item");
+        if (!dragFolderId && !dragBookmarkPayload) {
+          const payload = await extractExternalDropPayloadAsync(event);
+          if (!payload) return;
+          const targetFolderId = target ? target.dataset.folderId : null;
+          importExternalPayload(payload, "folders", targetFolderId);
+          return;
+        }
         if (!target && dragFolderId) {
           if (dropAtStart) {
             const first = getVisibleFolders()[0];
@@ -1979,7 +2466,7 @@
       });
 
       el.bookmarkGrid.addEventListener("dragover", (event) => {
-        if (!dragBookmarkPayload) return;
+        if (!dragBookmarkPayload && !isPotentialExternalDrag(event)) return;
         event.preventDefault();
         const target = event.target.closest(".bookmark-card");
         if (target) return;
@@ -1992,10 +2479,17 @@
         }
       });
 
-      el.bookmarkGrid.addEventListener("drop", () => {
+      el.bookmarkGrid.addEventListener("drop", async (event) => {
+        event.preventDefault();
         const dropAtStart = el.bookmarkGrid.classList.contains("drop-start");
         clearDropIndicators();
-        if (!dragBookmarkPayload || !selectedFolderId) return;
+        if (!dragBookmarkPayload) {
+          const payload = await extractExternalDropPayloadAsync(event);
+          if (!payload || !selectedFolderId) return;
+          importExternalPayload(payload, "links", selectedFolderId);
+          return;
+        }
+        if (!selectedFolderId) return;
         if (dropAtStart) {
           const list = getBookmarksByFolder(selectedFolderId);
           const beforeBookmarkId = list.length ? list[0].id : null;
@@ -2013,8 +2507,19 @@
         clearDropIndicators();
       });
 
+      el.appRoot.addEventListener("dragover", (event) => {
+        if (!isPotentialExternalDrag(event)) return;
+        event.preventDefault();
+      });
+
+      el.appRoot.addEventListener("drop", (event) => {
+        if (!isPotentialExternalDrag(event)) return;
+        event.preventDefault();
+      });
+
       if (!selectedFolderId && state.folders.length) selectedFolderId = state.folders[0].id;
       if (!focusedFolderId || !getFolderById(focusedFolderId)) focusedFolderId = selectedFolderId;
+      el.versionLabel.textContent = "v" + APP_VERSION;
       loadTheme();
       render();
     })();
