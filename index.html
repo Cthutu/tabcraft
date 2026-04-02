@@ -286,8 +286,11 @@
 
     .bookmark-card.active,
     .bookmark-card:focus-visible {
-      outline: 2px solid rgba(15, 118, 110, 0.45);
-      outline-offset: -2px;
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent-soft) 40%, var(--panel) 60%);
+      box-shadow:
+        0 0 0 3px rgba(15, 118, 110, 0.32),
+        0 10px 24px rgba(15, 40, 70, 0.14);
     }
 
     .bookmark-card.drag-over {
@@ -526,6 +529,13 @@
       color: #d5c4a1;
     }
 
+    body[data-theme="dark"] .bookmark-card.active,
+    body[data-theme="dark"] .bookmark-card:focus-visible {
+      box-shadow:
+        0 0 0 3px rgba(184, 187, 38, 0.35),
+        0 12px 28px rgba(0, 0, 0, 0.28);
+    }
+
     body[data-theme="dark"] .footer {
       background: #32302f;
     }
@@ -616,7 +626,7 @@
       const THEME_KEY = "tabcraft:theme";
       const FOLDER_UI_KEY = "tabcraft:folder-ui:v1";
       const UI_STATE_KEY = "tabcraft:ui-state:v1";
-      const APP_VERSION = "1.1.0";
+      const APP_VERSION = "1.1.1";
 
       const el = {
         appRoot: document.getElementById("appRoot"),
@@ -1198,6 +1208,21 @@
           .sort((a, b) => a.order - b.order);
       }
 
+      function getVisibleBookmarksForFolder(folderId) {
+        return getBookmarksByFolder(folderId).filter(b => {
+          if (!searchTerm) return true;
+          return b.title.toLowerCase().includes(searchTerm)
+            || b.url.toLowerCase().includes(searchTerm)
+            || (b.description || "").toLowerCase().includes(searchTerm);
+        });
+      }
+
+      function selectDefaultBookmarkForFolder(folderId) {
+        const visibleBookmarks = getVisibleBookmarksForFolder(folderId);
+        focusedBookmarkIndex = visibleBookmarks.length ? 0 : -1;
+        focusedBookmarkId = visibleBookmarks.length ? visibleBookmarks[0].id : null;
+      }
+
       function normalizeOrders() {
         const byParent = new Map();
         for (const folder of state.folders) {
@@ -1267,9 +1292,9 @@
           li.addEventListener("click", () => {
             selectedFolderId = folder.id;
             focusedFolderId = folder.id;
-            focusedBookmarkIndex = -1;
-            focusedBookmarkId = null;
+            selectDefaultBookmarkForFolder(folder.id);
             render();
+            if (focusedBookmarkIndex >= 0) focusBookmarkIndex(focusedBookmarkIndex);
           });
 
           li.addEventListener("contextmenu", (event) => {
@@ -1314,6 +1339,17 @@
               clearDropIndicators();
               return;
             }
+            if (dragBookmarkPayload) {
+              moveBookmark(
+                dragBookmarkPayload.bookmarkId,
+                dragBookmarkPayload.fromFolderId,
+                folder.id,
+                null
+              );
+              dragBookmarkPayload = null;
+              clearDropIndicators();
+              return;
+            }
             if (!dragFolderId || dragFolderId === folder.id) return;
             moveFolder(dragFolderId, folder.id, mode);
             dragFolderId = null;
@@ -1333,12 +1369,7 @@
           return;
         }
 
-        const list = getBookmarksByFolder(folder.id).filter(b => {
-          if (!searchTerm) return true;
-          return b.title.toLowerCase().includes(searchTerm)
-            || b.url.toLowerCase().includes(searchTerm)
-            || (b.description || "").toLowerCase().includes(searchTerm);
-        });
+        const list = getVisibleBookmarksForFolder(folder.id);
 
         focusedBookmarkIndex = focusedBookmarkId ? list.findIndex(b => b.id === focusedBookmarkId) : -1;
 
@@ -1381,6 +1412,7 @@
           card.addEventListener("focus", () => {
             focusedBookmarkIndex = index;
             focusedBookmarkId = bookmark.id;
+            syncActiveBookmarkCard();
             persistUiState();
           });
 
@@ -1436,6 +1468,8 @@
 
           el.bookmarkGrid.appendChild(card);
         });
+
+        syncActiveBookmarkCard();
       }
 
       function render() {
@@ -1602,10 +1636,10 @@
         const nextIndex = Math.max(0, Math.min(visible.length - 1, index + direction));
         focusedFolderId = visible[nextIndex].folder.id;
         selectedFolderId = focusedFolderId;
-        focusedBookmarkIndex = -1;
-        focusedBookmarkId = null;
+        selectDefaultBookmarkForFolder(focusedFolderId);
         ensureFolderVisible(focusedFolderId);
         render();
+        if (focusedBookmarkIndex >= 0) focusBookmarkIndex(focusedBookmarkIndex);
       }
 
       function setFolderNodeCollapsed(folderId, collapse) {
@@ -2138,6 +2172,15 @@
         return Array.from(el.bookmarkGrid.querySelectorAll(".bookmark-card"));
       }
 
+      function syncActiveBookmarkCard() {
+        const cards = getBookmarkCards();
+        for (const card of cards) {
+          const matchesFocusedId = focusedBookmarkId && card.dataset.bookmarkId === focusedBookmarkId;
+          const matchesFocusedIndex = String(focusedBookmarkIndex) === (card.dataset.index || "");
+          card.classList.toggle("active", !!(matchesFocusedId || matchesFocusedIndex));
+        }
+      }
+
       function focusBookmarkIndex(index) {
         const cards = getBookmarkCards();
         if (!cards.length) return;
@@ -2145,6 +2188,7 @@
         focusedBookmarkIndex = nextIndex;
         const target = cards[nextIndex];
         focusedBookmarkId = target.dataset.bookmarkId || null;
+        syncActiveBookmarkCard();
         persistUiState();
         target.focus({ preventScroll: false });
         target.scrollIntoView({ block: "nearest" });
