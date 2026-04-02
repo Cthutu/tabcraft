@@ -233,6 +233,30 @@
       font-family: inherit;
     }
 
+    .field-hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--accent);
+      flex: 0 0 auto;
+    }
+
     button {
       border: 1px solid var(--line);
       background: #fff;
@@ -276,7 +300,12 @@
       gap: 12px;
       min-height: 170px;
       user-select: none;
+      overflow: hidden;
       transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    .bookmark-card.has-preview {
+      background: color-mix(in srgb, var(--panel) 84%, white 16%);
     }
 
     .bookmark-card:hover {
@@ -345,6 +374,8 @@
       align-items: flex-start;
       gap: 8px;
       min-width: 0;
+      position: relative;
+      z-index: 1;
     }
 
     .favicon {
@@ -374,6 +405,8 @@
       flex-direction: column;
       gap: 10px;
       min-height: 0;
+      position: relative;
+      z-index: 1;
     }
 
     .bookmark-description {
@@ -402,6 +435,34 @@
       margin-top: auto;
       padding-top: 10px;
       border-top: 1px solid var(--line);
+      position: relative;
+      z-index: 1;
+    }
+
+    .bookmark-preview {
+      position: absolute;
+      inset: 0;
+      background-position: center;
+      background-size: cover;
+      transform: scale(1.03);
+      filter: saturate(1.35) contrast(1.02);
+      opacity: 0.24;
+      pointer-events: none;
+    }
+
+    .bookmark-preview-overlay {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.68)),
+        linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(255, 255, 255, 0.04));
+      pointer-events: none;
+    }
+
+    body[data-theme="dark"] .bookmark-preview-overlay {
+      background:
+        linear-gradient(to bottom, rgba(60, 56, 54, 0.34), rgba(60, 56, 54, 0.58)),
+        linear-gradient(135deg, rgba(184, 187, 38, 0.14), rgba(60, 56, 54, 0.05));
     }
 
     .empty-state {
@@ -505,6 +566,47 @@
       justify-content: flex-end;
       gap: 8px;
       padding-top: 4px;
+    }
+
+    .results-dialog {
+      width: min(720px, calc(100vw - 32px));
+    }
+
+    .results-body {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+      max-height: min(65vh, 560px);
+      overflow: auto;
+    }
+
+    .results-summary {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .result-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-2);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .result-title {
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.35;
     }
 
     @media (max-width: 900px) {
@@ -613,11 +715,35 @@
         <label for="bookmarkDescription">Description</label>
         <textarea id="bookmarkDescription" maxlength="600" placeholder="Optional notes or summary shown on the bookmark card"></textarea>
       </div>
+        <div class="field">
+          <label class="checkbox-row" for="bookmarkPreviewEnabled">
+            <input id="bookmarkPreviewEnabled" type="checkbox">
+            <span>Show preview image background</span>
+          </label>
+        <div class="field-hint">Leave the image URL blank to let add and scan operations populate it automatically when a preview image is found.</div>
+        </div>
+      <div class="field">
+        <label for="bookmarkPreviewImageUrl">Preview Image URL</label>
+        <input id="bookmarkPreviewImageUrl" type="url" placeholder="Optional image URL">
+      </div>
       <div class="dialog-actions">
         <button id="bookmarkCancelBtn" type="button">Cancel</button>
         <button id="bookmarkSaveBtn" type="submit" class="primary">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="scanResultsDialog" class="dialog results-dialog">
+    <div class="dialog-header">
+      <h2 id="scanResultsTitle" class="dialog-title">Preview Scan</h2>
+    </div>
+    <div class="results-body">
+      <div id="scanResultsSummary" class="results-summary"></div>
+      <div id="scanResultsList" class="results-list"></div>
+      <div class="dialog-actions">
+        <button id="scanResultsCloseBtn" type="button" class="primary">Close</button>
+      </div>
+    </div>
   </dialog>
 
   <script>
@@ -648,8 +774,15 @@
         bookmarkTitle: document.getElementById("bookmarkTitle"),
         bookmarkUrl: document.getElementById("bookmarkUrl"),
         bookmarkDescription: document.getElementById("bookmarkDescription"),
+        bookmarkPreviewEnabled: document.getElementById("bookmarkPreviewEnabled"),
+        bookmarkPreviewImageUrl: document.getElementById("bookmarkPreviewImageUrl"),
         bookmarkCancelBtn: document.getElementById("bookmarkCancelBtn"),
-        bookmarkSaveBtn: document.getElementById("bookmarkSaveBtn")
+        bookmarkSaveBtn: document.getElementById("bookmarkSaveBtn"),
+        scanResultsDialog: document.getElementById("scanResultsDialog"),
+        scanResultsTitle: document.getElementById("scanResultsTitle"),
+        scanResultsSummary: document.getElementById("scanResultsSummary"),
+        scanResultsList: document.getElementById("scanResultsList"),
+        scanResultsCloseBtn: document.getElementById("scanResultsCloseBtn")
       };
 
       let state = loadState();
@@ -780,6 +913,28 @@
         const raw = String(input || "").replace(/\s+/g, " ").trim();
         if (!raw) return "";
         return raw.length > 600 ? raw.slice(0, 600).trim() : raw;
+      }
+
+      function resolveUrl(input, baseUrl) {
+        const raw = String(input || "").trim();
+        if (!raw) return "";
+        try {
+          return new URL(raw, baseUrl || undefined).toString();
+        } catch {
+          return "";
+        }
+      }
+
+      function cleanPreviewImageUrl(input, baseUrl) {
+        const resolved = resolveUrl(input, baseUrl);
+        if (!resolved) return "";
+        try {
+          const parsed = new URL(resolved);
+          if (!/^https?:$/i.test(parsed.protocol)) return "";
+          return parsed.toString();
+        } catch {
+          return "";
+        }
       }
 
       function validateUrl(input) {
@@ -1080,6 +1235,8 @@
             title: String(b.title || b.url),
             url: String(b.url),
             description: clipDescription(b.description || ""),
+            previewEnabled: b.previewEnabled !== false,
+            previewImageUrl: cleanPreviewImageUrl(b.previewImageUrl || "", String(b.url)),
             order: Number.isFinite(b.order) ? b.order : i,
             createdAt: b.createdAt || nowIso(),
             updatedAt: b.updatedAt || nowIso()
@@ -1224,6 +1381,127 @@
             || b.url.toLowerCase().includes(searchTerm)
             || (b.description || "").toLowerCase().includes(searchTerm);
         });
+      }
+
+      async function detectPreviewImageUrl(pageUrl) {
+        const normalizedPageUrl = validateUrl(pageUrl);
+        if (!normalizedPageUrl) return "";
+
+        try {
+          const response = await fetch(normalizedPageUrl, { method: "GET", mode: "cors", credentials: "omit" });
+          if (!response.ok) return "";
+          const html = await response.text();
+          if (!html) return "";
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          const selectors = [
+            'meta[property="og:image:secure_url"]',
+            'meta[property="og:image:url"]',
+            'meta[property="og:image"]',
+            'meta[name="twitter:image"]',
+            'meta[name="twitter:image:src"]',
+            'link[rel="image_src"]'
+          ];
+          for (const selector of selectors) {
+            const node = doc.querySelector(selector);
+            if (!node) continue;
+            const raw = node.getAttribute("content") || node.getAttribute("href") || "";
+            const resolved = cleanPreviewImageUrl(raw, normalizedPageUrl);
+            if (resolved) return resolved;
+          }
+
+          const contentImage = doc.querySelector("main img[src], article img[src], img[src]");
+          if (contentImage) {
+            const resolved = cleanPreviewImageUrl(contentImage.getAttribute("src") || "", normalizedPageUrl);
+            if (resolved) return resolved;
+          }
+        } catch {}
+
+        return "";
+      }
+
+      function queuePreviewDetection(bookmarkId) {
+        const bookmark = state.bookmarks.find(x => x.id === bookmarkId);
+        if (!bookmark || bookmark.previewEnabled === false || bookmark.previewImageUrl) {
+          return;
+        }
+
+        const expectedUrl = bookmark.url;
+        detectPreviewImageUrl(expectedUrl).then((detectedUrl) => {
+          if (!detectedUrl) return;
+          const current = state.bookmarks.find(x => x.id === bookmarkId);
+          if (!current) return;
+          if (current.url !== expectedUrl) return;
+          if (current.previewEnabled === false || current.previewImageUrl) return;
+          current.previewImageUrl = detectedUrl;
+          current.updatedAt = nowIso();
+          render();
+        });
+      }
+
+      function showScanResultsDialog(summaryText, items) {
+        el.scanResultsSummary.textContent = summaryText;
+        el.scanResultsList.innerHTML = "";
+
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty-state";
+          empty.textContent = "No reachable preview images were found.";
+          el.scanResultsList.appendChild(empty);
+        } else {
+          for (const item of items) {
+            const card = document.createElement("article");
+            card.className = "result-card";
+
+            const title = document.createElement("div");
+            title.className = "result-title";
+            title.textContent = item.title || hostname(item.url) || item.url;
+
+            card.appendChild(title);
+            el.scanResultsList.appendChild(card);
+          }
+        }
+
+        el.scanResultsDialog.showModal();
+      }
+
+      async function scanBookmarksForPreviewImages(forceRefresh) {
+        const targets = state.bookmarks.filter((bookmark) => {
+          if (!bookmark || bookmark.previewEnabled === false) return false;
+          if (!forceRefresh && bookmark.previewImageUrl) return false;
+          return !!validateUrl(bookmark.url);
+        });
+
+        if (!targets.length) {
+          alert("No bookmarks need preview scanning.");
+          return;
+        }
+
+        let updatedCount = 0;
+        let clearedCount = 0;
+        const foundItems = [];
+
+        for (const bookmark of targets) {
+          const detectedUrl = await detectPreviewImageUrl(bookmark.url);
+          const nextPreviewUrl = detectedUrl || "";
+          const previousPreviewUrl = bookmark.previewImageUrl || "";
+          if (nextPreviewUrl) {
+            foundItems.push({
+              title: bookmark.title || "",
+              url: bookmark.url
+            });
+          }
+          if (nextPreviewUrl === previousPreviewUrl) continue;
+          bookmark.previewImageUrl = nextPreviewUrl;
+          bookmark.updatedAt = nowIso();
+          if (nextPreviewUrl) updatedCount += 1;
+          else if (previousPreviewUrl) clearedCount += 1;
+        }
+
+        render(updatedCount > 0 || clearedCount > 0);
+        showScanResultsDialog(
+          "Scanned " + targets.length + " bookmark(s). Found reachable images for " + foundItems.length + ", updated " + updatedCount + (clearedCount ? ", cleared " + clearedCount + "." : "."),
+          foundItems
+        );
       }
 
       function selectDefaultBookmarkForFolder(folderId) {
@@ -1395,13 +1673,18 @@
           const safeDescription = escapeHtml(description);
           const descriptionClass = description ? "bookmark-description" : "bookmark-description empty";
           const descriptionText = description || "No description yet.";
+          const previewImageUrl = bookmark.previewEnabled === false ? "" : cleanPreviewImageUrl(bookmark.previewImageUrl || "", bookmark.url);
+          const previewMarkup = previewImageUrl
+            ? '<div class="bookmark-preview"></div><div class="bookmark-preview-overlay"></div>'
+            : "";
           const card = document.createElement("article");
-          card.className = "bookmark-card" + (index === focusedBookmarkIndex ? " active" : "");
+          card.className = "bookmark-card" + (previewImageUrl ? " has-preview" : "") + (index === focusedBookmarkIndex ? " active" : "");
           card.dataset.bookmarkId = bookmark.id;
           card.dataset.index = String(index);
           card.draggable = true;
           card.tabIndex = 0;
           card.innerHTML =
+            previewMarkup +
             '<div class="bookmark-top">' +
               '<img class="favicon" alt="" src="' + favicon(bookmark.url) + '" onerror="this.style.visibility=\'hidden\'">' +
               '<div class="bookmark-title" title="' + escapeHtml(bookmark.title) + '">' + escapeHtml(bookmark.title) + '</div>' +
@@ -1410,6 +1693,10 @@
               '<div class="' + descriptionClass + '" title="' + safeDescription + '">' + escapeHtml(descriptionText) + '</div>' +
             '</div>' +
             '<div class="bookmark-url" title="' + escapeHtml(bookmark.url) + '">' + escapeHtml(bookmark.url) + '</div>';
+          if (previewImageUrl) {
+            const previewNode = card.querySelector(".bookmark-preview");
+            if (previewNode) previewNode.style.backgroundImage = 'url("' + previewImageUrl.replaceAll('"', "%22") + '")';
+          }
 
           card.addEventListener("click", () => {
             focusedBookmarkIndex = index;
@@ -1681,6 +1968,8 @@
         let title = "";
         let url = "";
         let description = "";
+        let previewEnabled = true;
+        let previewImageUrl = "";
 
         if (mode === "edit") {
           const b = state.bookmarks.find(x => x.id === bookmarkId);
@@ -1689,6 +1978,8 @@
           title = b.title;
           url = b.url;
           description = b.description || "";
+          previewEnabled = b.previewEnabled !== false;
+          previewImageUrl = b.previewImageUrl || "";
           el.bookmarkDialogTitle.textContent = "Edit Bookmark";
           el.bookmarkSaveBtn.textContent = "Save";
         } else {
@@ -1699,6 +1990,8 @@
             title = seed.title || "";
             url = seed.url || "";
             description = seed.description || "";
+            previewEnabled = seed.previewEnabled !== false;
+            previewImageUrl = seed.previewImageUrl || "";
           }
         }
 
@@ -1706,6 +1999,9 @@
         el.bookmarkTitle.value = title;
         el.bookmarkUrl.value = url;
         el.bookmarkDescription.value = description;
+        el.bookmarkPreviewEnabled.checked = previewEnabled;
+        el.bookmarkPreviewImageUrl.value = previewImageUrl;
+        updatePreviewDialogState();
         el.bookmarkDialog.showModal();
         setTimeout(() => {
           if (mode === "edit") {
@@ -1719,6 +2015,10 @@
 
       function closeBookmarkDialog() {
         if (el.bookmarkDialog.open) el.bookmarkDialog.close();
+      }
+
+      function updatePreviewDialogState() {
+        el.bookmarkPreviewImageUrl.disabled = !el.bookmarkPreviewEnabled.checked;
       }
 
       function saveBookmarkFromDialog() {
@@ -1736,20 +2036,34 @@
         }
         const title = (el.bookmarkTitle.value || "").trim() || hostname(url) || url;
         const description = clipDescription(el.bookmarkDescription.value || "");
+        const previewEnabled = el.bookmarkPreviewEnabled.checked;
+        const previewImageUrl = cleanPreviewImageUrl(el.bookmarkPreviewImageUrl.value || "", url);
+        if (el.bookmarkPreviewImageUrl.value.trim() && !previewImageUrl) {
+          alert("Please enter a valid preview image URL.");
+          el.bookmarkPreviewImageUrl.focus();
+          return;
+        }
+        let bookmarkIdToDetect = null;
 
         if (bookmarkDialogMode === "edit" && editingBookmarkId) {
           const existing = state.bookmarks.find(x => x.id === editingBookmarkId);
           if (!existing) return;
           const previousFolderId = existing.folderId;
+          const urlChanged = existing.url !== url;
           existing.folderId = folderId;
           existing.title = title;
           existing.url = url;
           existing.description = description;
+          existing.previewEnabled = previewEnabled;
+          existing.previewImageUrl = previewImageUrl || (urlChanged ? "" : existing.previewImageUrl || "");
           existing.updatedAt = nowIso();
           if (previousFolderId !== folderId) {
             existing.order = getBookmarksByFolder(folderId).length;
           }
           focusedBookmarkId = existing.id;
+          if (previewEnabled && !existing.previewImageUrl) {
+            bookmarkIdToDetect = existing.id;
+          }
         } else {
           const now = nowIso();
           const created = {
@@ -1758,12 +2072,15 @@
             title,
             url,
             description,
+            previewEnabled,
+            previewImageUrl: previewImageUrl || "",
             order: getBookmarksByFolder(folderId).length,
             createdAt: now,
             updatedAt: now
           };
           state.bookmarks.push(created);
           focusedBookmarkId = created.id;
+          if (previewEnabled && !previewImageUrl) bookmarkIdToDetect = created.id;
         }
 
         selectedFolderId = folderId;
@@ -1771,6 +2088,7 @@
         focusedBookmarkIndex = -1;
         closeBookmarkDialog();
         render();
+        if (bookmarkIdToDetect) queuePreviewDetection(bookmarkIdToDetect);
       }
 
       function addBookmark() {
@@ -1793,6 +2111,8 @@
           title: resolvedTitle,
           url: normalizedUrl,
           description: "",
+          previewEnabled: true,
+          previewImageUrl: "",
           order: getBookmarksByFolder(targetFolderId).length,
           createdAt: now,
           updatedAt: now
@@ -1803,14 +2123,17 @@
         focusedBookmarkIndex = -1;
         focusedBookmarkId = created.id;
         render();
+        queuePreviewDetection(created.id);
       }
 
-      function addBookmarkRecord(url, folderId, preferredTitle, preferredDescription) {
+      function addBookmarkRecord(url, folderId, preferredTitle, preferredDescription, previewOptions) {
         const normalizedUrl = validateUrl(url);
         if (!normalizedUrl) return null;
         const cleanTitle = clipTitle(preferredTitle || "");
         const resolvedTitle = cleanTitle || hostname(normalizedUrl) || normalizedUrl;
         const description = clipDescription(preferredDescription || "");
+        const previewEnabled = !previewOptions || previewOptions.previewEnabled !== false;
+        const previewImageUrl = cleanPreviewImageUrl(previewOptions && previewOptions.previewImageUrl || "", normalizedUrl);
         const now = nowIso();
         const created = {
           id: uid("bm"),
@@ -1818,6 +2141,8 @@
           title: resolvedTitle,
           url: normalizedUrl,
           description,
+          previewEnabled,
+          previewImageUrl,
           order: getBookmarksByFolder(folderId).length,
           createdAt: now,
           updatedAt: now
@@ -1831,12 +2156,16 @@
         if (!folder) return 0;
         let count = 0;
         let lastId = null;
+        const detectionQueue = [];
         for (const item of bookmarks || []) {
           if (!item || !item.url) continue;
-          const created = addBookmarkRecord(item.url, folderId, item.title || "", item.description || "");
+          const created = addBookmarkRecord(item.url, folderId, item.title || "", item.description || "", item);
           if (created) {
             count += 1;
             lastId = created.id;
+            if (created.previewEnabled !== false && !created.previewImageUrl) {
+              detectionQueue.push(created.id);
+            }
           }
         }
         if (count > 0) {
@@ -1845,6 +2174,7 @@
           focusedBookmarkIndex = -1;
           focusedBookmarkId = lastId;
           render();
+          detectionQueue.forEach(queuePreviewDetection);
         }
         return count;
       }
@@ -1874,7 +2204,7 @@
         const folder = createImportedFolder(node.name, parentId);
         collapsedFolderIds.delete(folder.id);
         for (const bookmark of node.bookmarks || []) {
-          addBookmarkRecord(bookmark.url, folder.id, bookmark.title || "", bookmark.description || "");
+          addBookmarkRecord(bookmark.url, folder.id, bookmark.title || "", bookmark.description || "", bookmark);
         }
         for (const child of node.folders || []) {
           importFolderTreeNode(child, folder.id);
@@ -1911,14 +2241,14 @@
           }
           if (baseParentId && (payload.tree.bookmarks || []).length) {
             for (const b of payload.tree.bookmarks) {
-              const created = addBookmarkRecord(b.url, baseParentId, b.title || "", b.description || "");
+              const created = addBookmarkRecord(b.url, baseParentId, b.title || "", b.description || "", b);
               if (created) createdAny = true;
             }
           } else if (!baseParentId && (payload.tree.bookmarks || []).length) {
             const inbox = createImportedFolder("Imported Bookmarks", null);
             lastCreatedFolderId = inbox.id;
             for (const b of payload.tree.bookmarks) {
-              addBookmarkRecord(b.url, inbox.id, b.title || "", b.description || "");
+              addBookmarkRecord(b.url, inbox.id, b.title || "", b.description || "", b);
             }
             createdAny = true;
           }
@@ -2138,6 +2468,8 @@
               title: importedBookmark.title,
               url: importedBookmark.url,
               description: clipDescription(importedBookmark.description || ""),
+              previewEnabled: importedBookmark.previewEnabled !== false,
+              previewImageUrl: cleanPreviewImageUrl(importedBookmark.previewImageUrl || "", importedBookmark.url),
               order: getBookmarksByFolder(mappedFolderId).length,
               createdAt: importedBookmark.createdAt || nowIso(),
               updatedAt: importedBookmark.updatedAt || nowIso()
@@ -2149,6 +2481,8 @@
             if (importedUpdated > existingUpdated) {
               existing.title = importedBookmark.title || existing.title;
               existing.description = clipDescription(importedBookmark.description || existing.description || "");
+              existing.previewEnabled = importedBookmark.previewEnabled !== false;
+              existing.previewImageUrl = cleanPreviewImageUrl(importedBookmark.previewImageUrl || existing.previewImageUrl || "", importedBookmark.url || existing.url);
               existing.updatedAt = importedUpdated;
             }
           }
@@ -2296,11 +2630,22 @@
       el.addBookmarkBtn.addEventListener("click", addBookmark);
       el.themeBtn.addEventListener("click", toggleTheme);
       el.exportBtn.addEventListener("click", exportJson);
-      el.importBtn.addEventListener("click", () => el.importFile.click());
+      el.importBtn.addEventListener("click", (event) => {
+        if (event.ctrlKey) {
+          event.preventDefault();
+          scanBookmarksForPreviewImages(true);
+          return;
+        }
+        el.importFile.click();
+      });
       el.bookmarkCancelBtn.addEventListener("click", closeBookmarkDialog);
       el.bookmarkForm.addEventListener("submit", (event) => {
         event.preventDefault();
         saveBookmarkFromDialog();
+      });
+      el.bookmarkPreviewEnabled.addEventListener("change", updatePreviewDialogState);
+      el.scanResultsCloseBtn.addEventListener("click", () => {
+        if (el.scanResultsDialog.open) el.scanResultsDialog.close();
       });
 
       el.bookmarkUrl.addEventListener("paste", (event) => {
